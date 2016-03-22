@@ -4,33 +4,65 @@
 
 ;;; Code:
 
+(require 'cl-lib)
+(require 'subr-x)
+
+(require 'glof)
 
 (cl-defun fridge:create (&optional file)
   (if file
       (glof:plist
-       :type :file
-       :file file)
+       :fridge/type :file
+       :fridge/file file
+       :fridge/read #'fridge::read-file
+       :fridge/write #'fridge::write-file)
     (glof:plist
-     :type :memory
-     :data nil)))
+     :fridge/type :memory
+     :fridge/data nil
+     :fridge/read #'fridge::read-memory
+     :fridge/write #'fridge::write-memory)))
 
-(cl-defun fridge:get (db &optinola key)
-  (cl-labels ((get-data
-                  (pcase (glof:get db :type)
-                    (:file #'fridge:get-data-file)
-                    (:memory #'fridge:get-data-file))))
-    (if key
-        (thread-first (get-data db)
-          (glof:get key))
-      (get-data db))))
+(cl-defun fridge:write (db data)
+  (glof:call db :fridge/write
+             db data))
 
-(cl-defun fridge:get-data-file (db)
-  (cl-letf ((file (glof:get db :file)))
+(cl-defun fridge::write-file (db data)
+  (with-temp-file (glof:get db :fridge/file)
+    (cl-letf ((standard-output (current-buffer)))
+      (prin1 data)))
+  db)
+
+(cl-defun fridge::write-memory (db data)
+  (glof:assoc db
+              :fridge/data data))
+
+(cl-defun fridge:read (db)
+  (glof:call db :fridge/read
+             db))
+
+(cl-defun fridge::read-file (db)
+  (cl-letf ((file (glof:get db :fridge/file)))
     (with-temp-buffer (insert-file-contents file)
                       (read (current-buffer)))))
 
-(cl-defun fridge::get-data-memory (db)
-  (glof:get db :data))
+(cl-defun fridge::read-memory (db)
+  (glof:get db :fridge/data))
+
+
+(cl-letf ((db (fridge:create)))
+  (cl-equalp
+   "test"
+   (thread-first db
+     (fridge:write  "test")
+     fridge:read)))
+
+
+(cl-letf ((db (fridge:create "test-db.el")))
+  (cl-equalp
+   "test"
+   (thread-first db
+     (fridge:write  "test")
+     fridge:read)))
 
 (provide 'fridge)
 
